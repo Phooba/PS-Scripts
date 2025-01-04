@@ -1,16 +1,19 @@
 # Define paths to the different server text files
 $files = @{
-    "1" = "C:\path\to\servers1.txt"
-    "2" = "C:\path\to\servers2.txt"
-    "3" = "C:\path\to\servers3.txt"
-    "4" = "C:\path\to\servers4.txt"
+    "1" = "C:\scripts\batch1.txt"
+    "2" = "C:\scripts\batch2.txt"
+    "3" = "C:\scripts\batch3.txt"
+    "4" = "C:\scripts\batch4.txt"
+    "5" = "C:\scripts\batch5.txt"
 }
 
 # Display a menu to choose the server file
-Write-Host "Select a division to reboot:" -ForegroundColor Cyan
-Write-Host "1. Atlanta"
-Write-Host "2. Dallas"
-Write-Host "3. Detroit"
+Write-Host "Select a Server Batch to reboot:" -ForegroundColor Cyan
+Write-Host "1. Eastern Time"
+Write-Host "2. Central Time"
+Write-Host "3. Mountain Time"
+Write-Host "4. Pacific Time"
+Write-Host "5. OCONUS"
 
 # Prompt for user input
 $choice = Read-Host "Enter the number corresponding to your choice"
