@@ -40,7 +40,6 @@ foreach ($server in $servers) {
     Write-Host "Attempting to reboot server: $server" -ForegroundColor Yellow
     
     try {
-        # Reboot the server using Restart-Computer
         Restart-Computer -ComputerName $server -Force -ErrorAction Stop
         
         Write-Host "Successfully rebooted server: $server" -ForegroundColor Green
