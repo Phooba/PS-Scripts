@@ -1,0 +1,145 @@
+function Scan-Network {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$StartIP,
+
+        [Parameter(Mandatory)]
+        [string]$EndIP,
+
+        [int[]]$Ports = @(21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 993, 995, 1433, 3306, 3389, 5432, 5900, 8080),
+
+        [int]$TimeoutMs = 500,
+
+        [int]$PingTimeoutMs = 1000
+    )
+
+    # Convert IP to integer for range iteration
+    function IP-ToInt($ip) {
+        $bytes = ([System.Net.IPAddress]::Parse($ip)).GetAddressBytes()
+        [Array]::Reverse($bytes)
+        [BitConverter]::ToUInt32($bytes, 0)
+    }
+
+    function Int-ToIP([uint32]$int) {
+        $bytes = [BitConverter]::GetBytes($int)
+        [Array]::Reverse($bytes)
+        return ($bytes -join '.')
+    }
+
+    $serviceMap = @{
+        21 = 'FTP'; 22 = 'SSH'; 23 = 'Telnet'; 25 = 'SMTP'; 53 = 'DNS'
+        80 = 'HTTP'; 110 = 'POP3'; 135 = 'RPC'; 139 = 'NetBIOS'; 143 = 'IMAP'
+        443 = 'HTTPS'; 445 = 'SMB'; 993 = 'IMAPS'; 995 = 'POP3S'
+        1433 = 'MSSQL'; 3306 = 'MySQL'; 3389 = 'RDP'; 5432 = 'PostgreSQL'
+        5900 = 'VNC'; 8080 = 'HTTP-Alt'
+    }
+
+    $startInt = IP-ToInt $StartIP
+    $endInt   = IP-ToInt $EndIP
+    $pinger   = New-Object System.Net.NetworkInformation.Ping
+
+    Write-Host "`n[*] Scanning range: $StartIP - $EndIP" -ForegroundColor Cyan
+    Write-Host "[*] Ports: $($Ports -join ', ')" -ForegroundColor Cyan
+    Write-Host "[*] Timeout: ${TimeoutMs}ms | Ping Timeout: ${PingTimeoutMs}ms`n" -ForegroundColor Cyan
+
+    $results = @()
+
+    for ($i = $startInt; $i -le $endInt; $i++) {
+        $ip = Int-ToIP $i
+        Write-Host "[-] Pinging $ip..." -ForegroundColor Gray -NoNewline
+
+        try {
+            $reply = $pinger.Send($ip, $PingTimeoutMs)
+            if ($reply.Status -ne 'Success') {
+                Write-Host " Down" -ForegroundColor DarkGray
+                continue
+            }
+        } catch {
+            Write-Host " Down" -ForegroundColor DarkGray
+            continue
+        }
+
+        Write-Host " Alive!" -ForegroundColor Green
+
+        # Try reverse DNS
+        $hostname = try { [System.Net.Dns]::GetHostEntry($ip).HostName } catch { $null }
+        if ($hostname) { Write-Host "    Hostname: $hostname" -ForegroundColor Yellow }
+
+        $openPorts = @()
+
+        foreach ($port in $Ports) {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            try {
+                $connect = $tcp.BeginConnect($ip, $port, $null, $null)
+                $waited  = $connect.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+
+                if ($waited -and $tcp.Connected) {
+                    $serviceName = if ($serviceMap.ContainsKey($port)) { $serviceMap[$port] } else { "Unknown" }
+                    $banner = ""
+
+                    # Try to grab banner
+                    try {
+                        $tcp.ReceiveTimeout = $TimeoutMs
+                        $stream = $tcp.GetStream()
+                        $stream.ReadTimeout = $TimeoutMs
+
+                        # For HTTP, send a request
+                        if ($port -in @(80, 443, 8080)) {
+                            $request = [Text.Encoding]::ASCII.GetBytes("HEAD / HTTP/1.0`r`nHost: $ip`r`n`r`n")
+                            $stream.Write($request, 0, $request.Length)
+                        }
+
+                        Start-Sleep -Milliseconds 300
+                        if ($stream.DataAvailable) {
+                            $buffer = New-Object byte[] 1024
+                            $read = $stream.Read($buffer, 0, 1024)
+                            if ($read -gt 0) {
+                                $banner = [Text.Encoding]::ASCII.GetString($buffer, 0, $read).Trim()
+                                $banner = ($banner -split "`n")[0..2] -join ' | '  # First 3 lines
+                                if ($banner.Length -gt 120) { $banner = $banner.Substring(0, 120) + "..." }
+                            }
+                        }
+                    } catch {}
+
+                    $portInfo = [PSCustomObject]@{
+                        Port    = $port
+                        Service = $serviceName
+                        Banner  = $banner
+                    }
+                    $openPorts += $portInfo
+
+                    $bannerDisplay = if ($banner) { " [$banner]" } else { "" }
+                    Write-Host "    Port $port/tcp OPEN - $serviceName$bannerDisplay" -ForegroundColor Green
+                }
+            } catch {} finally {
+                $tcp.Close()
+            }
+        }
+
+        if ($openPorts.Count -gt 0) {
+            $results += [PSCustomObject]@{
+                IP        = $ip
+                Hostname  = $hostname
+                OpenPorts = $openPorts
+            }
+        }
+    }
+
+    $pinger.Dispose()
+
+    # Summary
+    Write-Host "`n========== SCAN SUMMARY ==========" -ForegroundColor Cyan
+    Write-Host "Hosts alive with open ports: $($results.Count)" -ForegroundColor White
+
+    foreach ($host in $results) {
+        $label = if ($host.Hostname) { "$($host.IP) ($($host.Hostname))" } else { $host.IP }
+        Write-Host "`n  $label" -ForegroundColor Yellow
+        foreach ($p in $host.OpenPorts) {
+            $b = if ($p.Banner) { " -> $($p.Banner)" } else { "" }
+            Write-Host "    $($p.Port)/tcp  $($p.Service)$b" -ForegroundColor White
+        }
+    }
+
+    return $results
+}
