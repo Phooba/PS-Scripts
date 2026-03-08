@@ -1,0 +1,12 @@
+$SourceFile = ".\RegUpdates.reg"
+$ComputerList = Get-Content ".\regupdatebatch.txt"
+
+foreach ($Computer in $ComputerList) {
+    $Destination = "\\$Computer\C$\Temp"
+    try {
+        Copy-Item -Path $SourceFile -Destination $Destination -Force -ErrorAction Stop
+        Write-Host "[SUCCESS] $Computer" -ForegroundColor Green
+    } catch {
+        Write-Host "[FAILED]  $Computer - $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
